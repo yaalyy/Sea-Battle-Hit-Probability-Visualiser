@@ -1,0 +1,88 @@
+name: Security
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  codeql:
+    name: CodeQL analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+
+  python-security:
+    name: Python security checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install security scanners
+        run: python -m pip install --upgrade pip bandit pip-audit detect-secrets
+
+      - name: Scan source for risky Python patterns
+        run: bandit -r . -x ./tests,./venv -lll
+
+      - name: Audit Python dependencies
+        run: pip-audit -r requirements.txt
+
+      - name: Scan for committed secrets
+        run: |
+          detect-secrets scan --all-files --exclude-files '^(\.git/|venv/|__pycache__/)' > .secrets.baseline
+          python - <<'PY'
+          import json
+          import sys
+
+          with open(".secrets.baseline", encoding="utf-8") as baseline_file:
+              baseline = json.load(baseline_file)
+
+          results = baseline.get("results", {})
+          if results:
+              for path, findings in results.items():
+                  for finding in findings:
+                      print(f"{path}:{finding.get('line_number')}: possible secret ({finding.get('type')})")
+              sys.exit(1)
+          PY
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
