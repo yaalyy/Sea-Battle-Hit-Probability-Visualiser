@@ -73,6 +73,7 @@ class ProbabilityEngine:
     MAX_EXACT_ARRANGEMENTS = 1_000_000  # upper limit for exact arrangements
     SAMPLE_TARGET = 30_000   # if upper limit is exceeded, target number of samples to generate
     SAMPLE_ATTEMPTS = 30_000  # maximum attempts to generate valid samples when limit is exceeded
+    RANDOM_SELECTION_PROBABILITY = 0.5  # probability to randomly select best cell when same probability occurs. e.g. If probability is 0.2, the new cell will be selected for 20%.
 
     def __init__(self, config: FleetConfig):
         self.config = config
@@ -82,7 +83,6 @@ class ProbabilityEngine:
         self._cache_key = None  # key to identify if cache is still valid based on sunk ships
         self._cache_exact = True  # label indicating if current mode is exact or sampling-based
         self.rebuild()
-        
         
     def rebuild(self):
         # precompute placements for each ship length to speed up arrangement generation later
@@ -372,9 +372,17 @@ class ProbabilityEngine:
                 probability = counts[index] / remaining
                 probabilities[row][col] = probability
                 bit = 1 << index
-                if unknown_mask & bit and probability > best_probability:
-                    best_cell = (row, col)
-                    best_probability = probability
+                if unknown_mask & bit:
+                    if probability > best_probability:
+                        best_cell = (row, col)
+                        best_probability = probability
+                    elif (
+                        best_cell is not None
+                        and probability == best_probability
+                        and random.random()
+                        < self.RANDOM_SELECTION_PROBABILITY
+                    ):
+                        best_cell = (row, col)
 
         return EvaluationResult(
             remaining_arrangements=remaining,
@@ -429,5 +437,3 @@ class ProbabilityEngine:
             unknown_mask=unknown_mask,
             exact=self._cache_exact,
         )
-
-
