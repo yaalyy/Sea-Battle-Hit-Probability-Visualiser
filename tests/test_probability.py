@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from probability import ProbabilityEngine
 from fleet import CellState, FleetConfig
 from ship import ShipSpec, ConfirmedSunkShip
@@ -32,6 +33,62 @@ class ProbabilityEngineTests(unittest.TestCase):
         self.assertEqual(result.remaining_arrangements, 6)
         self.assertEqual(result.total_arrangements, 6)
         self.assertEqual(result.probabilities, [[0.5, 0.5], [0.5, 0.5]])
+
+    def test_best_cell_uses_configured_probability_when_probabilities_tie(self):
+        original_probability = ProbabilityEngine.RANDOM_SELECTION_PROBABILITY
+        ProbabilityEngine.RANDOM_SELECTION_PROBABILITY = 0.75
+
+        try:
+            engine = ProbabilityEngine(FleetConfig(2, 2, [ShipSpec(2, 1)]))
+
+            with patch("probability.random.random", side_effect=[0.8, 0.2, 0.9]):
+                result = engine.evaluate(
+                    [
+                        [CellState.UNKNOWN, CellState.UNKNOWN],
+                        [CellState.UNKNOWN, CellState.UNKNOWN],
+                    ]
+                )
+        finally:
+            ProbabilityEngine.RANDOM_SELECTION_PROBABILITY = original_probability
+
+        self.assertEqual(result.probabilities, [[0.5, 0.5], [0.5, 0.5]])
+        self.assertEqual(result.best_cell, (1, 0))
+
+    def test_zero_tie_break_probability_keeps_first_matching_best_cell(self):
+        original_probability = ProbabilityEngine.RANDOM_SELECTION_PROBABILITY
+        ProbabilityEngine.RANDOM_SELECTION_PROBABILITY = 0.0
+
+        try:
+            engine = ProbabilityEngine(FleetConfig(2, 2, [ShipSpec(2, 1)]))
+
+            result = engine.evaluate(
+                [
+                    [CellState.UNKNOWN, CellState.UNKNOWN],
+                    [CellState.UNKNOWN, CellState.UNKNOWN],
+                ]
+            )
+        finally:
+            ProbabilityEngine.RANDOM_SELECTION_PROBABILITY = original_probability
+
+        self.assertEqual(result.best_cell, (0, 0))
+
+    def test_full_tie_break_probability_keeps_last_matching_best_cell(self):
+        original_probability = ProbabilityEngine.RANDOM_SELECTION_PROBABILITY
+        ProbabilityEngine.RANDOM_SELECTION_PROBABILITY = 1.0
+
+        try:
+            engine = ProbabilityEngine(FleetConfig(2, 2, [ShipSpec(2, 1)]))
+
+            result = engine.evaluate(
+                [
+                    [CellState.UNKNOWN, CellState.UNKNOWN],
+                    [CellState.UNKNOWN, CellState.UNKNOWN],
+                ]
+            )
+        finally:
+            ProbabilityEngine.RANDOM_SELECTION_PROBABILITY = original_probability
+
+        self.assertEqual(result.best_cell, (1, 1))
 
     def test_miss_excludes_arrangements_containing_that_cell(self):
         engine = ProbabilityEngine(FleetConfig(2, 2, [ShipSpec(2, 1)]))
